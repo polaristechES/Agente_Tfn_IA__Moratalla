@@ -2,9 +2,28 @@
 # DEPENDENCIAS MIDDLEWARE: CONECTA ELEVENLABS -> API
 # ═══════════════════════════════════════════════════════════════════
 
+# FastAPI: el framework con el que está construido el middleware.
+# Permite definir endpoints (URLs) a los que ElevenLabs puede llamar,
+# y gestiona automáticamente la validación de datos y los errores.
 fastapi
+
+# Uvicorn: el servidor web que ejecuta FastAPI.
+# Es quien "enciende" el servidor y se queda escuchando peticiones.
+# En local lo arrancamos con: uvicorn Middleware:app --reload
+# En Render lo arranca automáticamente con el Start Command configurado.
 uvicorn
+
+# Httpx: la librería que usa el middleware para hacer llamadas HTTP
+# hacia la API de la clínica. Cuando ElevenLabs llama al middleware,
+# el middleware a su vez llama a la API usando httpx para obtener
+# o escribir los datos que necesita.
 httpx
+
+# Python-dotenv: lee el archivo .env y carga sus variables como
+# variables de entorno del sistema. Así el código puede leer
+# CLINIC_API_BASE_URL sin que esa URL esté escrita directamente
+# en el código fuente.
+python-dotenv>=1.0.0
 
 # ───────────────────────────────────────────────────────────────────
 # NOTAS DE INSTALACIÓN
