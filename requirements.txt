@@ -1,0 +1,17 @@
+# ═══════════════════════════════════════════════════════════════════
+# DEPENDENCIAS MIDDLEWARE: CONECTA ELEVENLABS -> API
+# ═══════════════════════════════════════════════════════════════════
+
+fastapi
+uvicorn
+httpx
+
+# ───────────────────────────────────────────────────────────────────
+# NOTAS DE INSTALACIÓN
+# ───────────────────────────────────────────────────────────────────
+# Para instalar todas las dependencias:
+#   pip install -r requirements.txt
+#
+# Para actualizar todas las dependencias:
+#   pip install --upgrade -r requirements.txt
+

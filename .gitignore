@@ -1,0 +1,40 @@
+# =============================================================================
+# ARCHIVOS A IGNORAR EN GIT
+# =============================================================================
+# Estos archivos NO se subirán a GitHub porque contienen información sensible
+# o son archivos temporales del sistema
+# =============================================================================
+
+# Archivos de variables de entorno (contienen credenciales)
+.env
+*.env
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Entornos virtuales
+venv/
+env/
+ENV/
+.venv
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Archivos de IDEs
+.vscode/
+.idea/
+*.code-workspace
+
+# Archivos temporales
+*.tmp
+*.temp
+*.log
