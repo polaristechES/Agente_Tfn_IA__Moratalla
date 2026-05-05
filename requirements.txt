@@ -25,6 +25,9 @@ httpx
 # en el código fuente.
 python-dotenv>=1.0.0
 
+# Supabase: cliente oficial para guardar los registros de llamadas.
+supabase
+
 # ───────────────────────────────────────────────────────────────────
 # NOTAS DE INSTALACIÓN
 # ───────────────────────────────────────────────────────────────────

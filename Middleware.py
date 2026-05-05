@@ -9,21 +9,35 @@ Arrancar en local (puerto 8001 para no colisionar con la API de prueba):
     uvicorn main:app --reload --port 8001
 
 Variables de entorno:
-    CLINIC_API_BASE_URL  URL de la API de la clínica (default: http://localhost:8000)
+    CLINIC_API_BASE_URL        URL de la API de la clínica (default: http://localhost:8000)
+    SUPABASE_URL               URL del proyecto Supabase
+    SUPABASE_KEY               Clave anon public de Supabase
+    ELEVENLABS_WEBHOOK_SECRET  Secreto HMAC proporcionado por ElevenLabs
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from supabase import create_client
+from dotenv import load_dotenv
 import httpx
 import os
 import logging
 import json
+import hmac
+import hashlib
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-CLINIC_API_URL = os.getenv("CLINIC_API_BASE_URL", "http://localhost:8000")
+CLINIC_API_URL   = os.getenv("CLINIC_API_BASE_URL", "http://localhost:8000")
+SUPABASE_URL     = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY     = os.environ.get("SUPABASE_KEY", "")
+WEBHOOK_SECRET   = os.environ.get("ELEVENLABS_WEBHOOK_SECRET", "")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI(
     title="Middleware Clínica Moratalla",
@@ -231,32 +245,55 @@ async def crear_paciente(datos: PeticionCrearPaciente):
 @app.post("/webhook-post-llamada")
 async def webhook_post_llamada(request: Request):
 
-    body  = await request.body()
+    # a) Verificación HMAC
+    body      = await request.body()
+    firma_cab = request.headers.get("ElevenLabs-Signature", "")
+    firma_esp = hmac.new(
+        WEBHOOK_SECRET.encode(),
+        body,
+        hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(firma_esp, firma_cab):
+        logger.warning("Webhook rechazado: firma HMAC inválida")
+        raise HTTPException(status_code=401, detail="Firma inválida")
+
+    # b) Parsear JSON
     datos = json.loads(body)
 
+    # c) Extraer campos
     duracion      = datos.get("duration_seconds", 0)
-    herramientas  = datos.get("tools_called", [])
-    transcripcion = datos.get("transcript", [])
+    tools_llamadas = datos.get("tools_called", [])
+    transcripcion  = datos.get("transcript", [])
 
-    transfirio  = any(t["tool"] == "transfer_to_number" for t in herramientas)
-    hubo_error  = any(not t.get("success", True) for t in herramientas)
+    # d) Calcular métricas
+    transferida    = any(t["tool"] == "transfer_to_number" for t in tools_llamadas)
+    error_tecnico  = any(not t.get("success", True) for t in tools_llamadas)
+    herramientas   = ", ".join(t["tool"] for t in tools_llamadas) if tools_llamadas else ""
 
+    # e) Guardar en Supabase (sin datos personales — RGPD)
+    supabase.table("llamadas").insert({
+        "duracion":      int(duracion),
+        "transferida":   transferida,
+        "error_tecnico": error_tecnico,
+        "num_turnos":    len(transcripcion),
+        "herramientas":  herramientas,
+    }).execute()
+
+    # f) Log de resumen
     print("=" * 50)
-    print("LLAMADA RECIBIDA")
+    print("LLAMADA REGISTRADA")
     print(f"  Duración:      {duracion} segundos")
-    print(f"  Transferida:   {transfirio}")
-    print(f"  Error técnico: {hubo_error}")
+    print(f"  Transferida:   {transferida}")
+    print(f"  Error técnico: {error_tecnico}")
     print(f"  Turnos:        {len(transcripcion)}")
+    print(f"  Herramientas:  {herramientas or '(ninguna)'}")
     print()
     print("TRANSCRIPCIÓN:")
     for turno in transcripcion:
         rol     = turno.get("role", "")
         mensaje = turno.get("message", "")
         print(f"  [{rol.upper()}] {mensaje}")
-    print()
-    print("HERRAMIENTAS USADAS:")
-    for t in herramientas:
-        print(f"  {t['tool']} → {'OK' if t.get('success') else 'ERROR'}")
     print("=" * 50)
 
+    # g) Respuesta
     return {"ok": True}
