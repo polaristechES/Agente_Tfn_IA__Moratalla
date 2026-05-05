@@ -12,12 +12,13 @@ Variables de entorno:
     CLINIC_API_BASE_URL  URL de la API de la clínica (default: http://localhost:8000)
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from typing import Optional
 import httpx
 import os
 import logging
+import json
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def health():
     return {"estado": "ok", "servicio": "Middleware Clínica Moratalla"}
 
 
-# ─── FASE 1: Consulta de datos ────────────────────────────────────────────────
+# ─── CONSULTA DE DATOS ────────────────────────────────────────────────
 
 @app.post("/consultar-paciente")
 async def consultar_paciente(datos: PeticionDNI):
@@ -130,7 +131,7 @@ async def consultar_citas(datos: PeticionDNI):
     return data
 
 
-# ─── FASE 2: Gestión de citas ─────────────────────────────────────────────────
+# ─── GESTIÓN DE CITAS ─────────────────────────────────────────────────
 
 @app.post("/consultar-disponibilidad")
 async def consultar_disponibilidad():
@@ -199,7 +200,7 @@ async def crear_cita(datos: PeticionCrearCita):
     return r.json()
 
 
-# ─── FASE 3: Nuevos pacientes ─────────────────────────────────────────────────
+# ─── NUEVOS PACIENTES ─────────────────────────────────────────────────
 
 @app.post("/crear-paciente")
 async def crear_paciente(datos: PeticionCrearPaciente):
@@ -223,3 +224,39 @@ async def crear_paciente(datos: PeticionCrearPaciente):
     if r.status_code != 201:
         return error_response(r.status_code, "Error al crear la ficha del paciente.")
     return r.json()
+
+
+# ─── WEBHOOK POST-LLAMADA ─────────────────────────────────────────────
+
+@app.post("/webhook-post-llamada")
+async def webhook_post_llamada(request: Request):
+
+    body  = await request.body()
+    datos = json.loads(body)
+
+    duracion      = datos.get("duration_seconds", 0)
+    herramientas  = datos.get("tools_called", [])
+    transcripcion = datos.get("transcript", [])
+
+    transfirio  = any(t["tool"] == "transfer_to_number" for t in herramientas)
+    hubo_error  = any(not t.get("success", True) for t in herramientas)
+
+    print("=" * 50)
+    print("LLAMADA RECIBIDA")
+    print(f"  Duración:      {duracion} segundos")
+    print(f"  Transferida:   {transfirio}")
+    print(f"  Error técnico: {hubo_error}")
+    print(f"  Turnos:        {len(transcripcion)}")
+    print()
+    print("TRANSCRIPCIÓN:")
+    for turno in transcripcion:
+        rol     = turno.get("role", "")
+        mensaje = turno.get("message", "")
+        print(f"  [{rol.upper()}] {mensaje}")
+    print()
+    print("HERRAMIENTAS USADAS:")
+    for t in herramientas:
+        print(f"  {t['tool']} → {'OK' if t.get('success') else 'ERROR'}")
+    print("=" * 50)
+
+    return {"ok": True}
