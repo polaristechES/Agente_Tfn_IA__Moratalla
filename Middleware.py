@@ -9,13 +9,15 @@ Arrancar en local (puerto 8001 para no colisionar con la API de prueba):
     uvicorn main:app --reload --port 8001
 
 Variables de entorno:
-    CLINIC_API_BASE_URL        URL de la API de la clínica (default: http://localhost:8000)
-    SUPABASE_URL               URL del proyecto Supabase
-    SUPABASE_KEY               Clave anon public de Supabase
-    ELEVENLABS_WEBHOOK_SECRET  Secreto HMAC proporcionado por ElevenLabs
+    API_KEY_MIDDLEWARE          Clave secreta que deben incluir las tools de ElevenLabs (header X-API-Key)
+    API_URL_CLINICA             URL de la API de la clínica (default: http://localhost:8000)
+    API_KEY_CLINICA             Clave de autenticación de la API de la clínica (header X-API-Key)
+    SUPABASE_URL                URL del proyecto Supabase
+    SUPABASE_KEY                Clave anon public de Supabase
+    ELEVENLABS_WEBHOOK_SECRET   Secreto HMAC proporcionado por ElevenLabs
 """
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from supabase import create_client
@@ -32,10 +34,16 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-CLINIC_API_URL   = os.getenv("CLINIC_API_BASE_URL", "http://localhost:8000")
-SUPABASE_URL     = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY     = os.environ.get("SUPABASE_KEY", "")
-WEBHOOK_SECRET   = os.environ.get("ELEVENLABS_WEBHOOK_SECRET", "")
+API_KEY_MIDDLEWARE = os.getenv("API_KEY_MIDDLEWARE", "")
+API_URL_CLINICA     = os.getenv("API_URL_CLINICA", "http://localhost:8000")
+API_KEY_CLINICA    = os.getenv("API_KEY_CLINICA", "")
+SUPABASE_URL       = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY       = os.environ.get("SUPABASE_KEY", "")
+WEBHOOK_SECRET     = os.environ.get("ELEVENLABS_WEBHOOK_SECRET", "")
+
+# Header de autenticación para la API de la clínica.
+# Vacío mientras usamos la API de prueba; se rellena cuando la clínica facilite la clave real.
+CLINIC_HEADERS = {"X-API-Key": API_KEY_CLINICA} if API_KEY_CLINICA else {}
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -44,6 +52,17 @@ app = FastAPI(
     description="Puente entre ElevenLabs y la API de la clínica.",
     version="1.0.0"
 )
+
+
+# ─── Autenticación ────────────────────────────────────────────────────────────
+
+async def check_api_key(request: Request):
+    """Verifica que la petición incluye la API Key correcta en el header X-API-Key."""
+    if request.headers.get("X-API-Key", "") != API_KEY_MIDDLEWARE:
+        raise HTTPException(status_code=403, detail="API Key inválida")
+
+# Todas las tools del agente van en este router; el webhook tiene su propia auth (HMAC).
+router = APIRouter(dependencies=[Depends(check_api_key)])
 
 
 # ─── Modelos de entrada ───────────────────────────────────────────────────────
@@ -86,16 +105,19 @@ def error_response(codigo: int, mensaje: str) -> dict:
 
 async def get(url: str, **kwargs) -> httpx.Response:
     """GET con timeout y manejo de conexión fallida."""
+    kwargs.setdefault("headers", CLINIC_HEADERS)
     async with httpx.AsyncClient(timeout=10) as client:
         return await client.get(url, **kwargs)
 
 
 async def post(url: str, **kwargs) -> httpx.Response:
+    kwargs.setdefault("headers", CLINIC_HEADERS)
     async with httpx.AsyncClient(timeout=10) as client:
         return await client.post(url, **kwargs)
 
 
 async def patch(url: str, **kwargs) -> httpx.Response:
+    kwargs.setdefault("headers", CLINIC_HEADERS)
     async with httpx.AsyncClient(timeout=10) as client:
         return await client.patch(url, **kwargs)
 
@@ -109,12 +131,12 @@ def health():
 
 # ─── CONSULTA DE DATOS ────────────────────────────────────────────────
 
-@app.post("/consultar-paciente")
+@router.post("/consultar-paciente")
 async def consultar_paciente(datos: PeticionDNI):
     """Devuelve la ficha de un paciente por su DNI."""
     logger.info("Tool: consultar-paciente")
     try:
-        r = await get(f"{CLINIC_API_URL}/pacientes/{datos.dni.upper()}")
+        r = await get(f"{API_URL_CLINICA}/pacientes/{datos.dni.upper()}")
     except httpx.ConnectError:
         return error_response(503, "No puedo conectar con el sistema de la clínica. Llame directamente a recepción.")
     if r.status_code == 404:
@@ -124,13 +146,13 @@ async def consultar_paciente(datos: PeticionDNI):
     return r.json()
 
 
-@app.post("/consultar-citas")
+@router.post("/consultar-citas")
 async def consultar_citas(datos: PeticionDNI):
     """Devuelve las citas próximas de un paciente por su DNI."""
     logger.info("Tool: consultar-citas")
     try:
         r = await get(
-            f"{CLINIC_API_URL}/pacientes/{datos.dni.upper()}/citas",
+            f"{API_URL_CLINICA}/pacientes/{datos.dni.upper()}/citas",
             params={"solo_futuras": True}
         )
     except httpx.ConnectError:
@@ -147,12 +169,12 @@ async def consultar_citas(datos: PeticionDNI):
 
 # ─── GESTIÓN DE CITAS ─────────────────────────────────────────────────
 
-@app.post("/consultar-disponibilidad")
+@router.post("/consultar-disponibilidad")
 async def consultar_disponibilidad():
     """Devuelve las franjas horarias libres para pedir o cambiar cita."""
     logger.info("Tool: consultar-disponibilidad")
     try:
-        r = await get(f"{CLINIC_API_URL}/disponibilidad")
+        r = await get(f"{API_URL_CLINICA}/disponibilidad")
     except httpx.ConnectError:
         return error_response(503, "No puedo conectar con el sistema de la clínica.")
     if r.status_code != 200:
@@ -160,7 +182,7 @@ async def consultar_disponibilidad():
     return r.json()
 
 
-@app.post("/modificar-cita")
+@router.post("/modificar-cita")
 async def modificar_cita(datos: PeticionModificarCita):
     """Cambia la fecha y/o hora de una cita existente."""
     logger.info("Tool: modificar-cita — ID: %s", datos.cita_id)
@@ -168,7 +190,7 @@ async def modificar_cita(datos: PeticionModificarCita):
     if not cambios:
         return error_response(400, "No se indicó ningún campo a modificar.")
     try:
-        r = await patch(f"{CLINIC_API_URL}/citas/{datos.cita_id}", json=cambios)
+        r = await patch(f"{API_URL_CLINICA}/citas/{datos.cita_id}", json=cambios)
     except httpx.ConnectError:
         return error_response(503, "No puedo conectar con el sistema de la clínica.")
     if r.status_code == 404:
@@ -178,12 +200,12 @@ async def modificar_cita(datos: PeticionModificarCita):
     return r.json()
 
 
-@app.post("/cancelar-cita")
+@router.post("/cancelar-cita")
 async def cancelar_cita(datos: PeticionCitaID):
     """Cancela una cita existente."""
     logger.info("Tool: cancelar-cita — ID: %s", datos.cita_id)
     try:
-        r = await patch(f"{CLINIC_API_URL}/citas/{datos.cita_id}", json={"estado": "cancelada"})
+        r = await patch(f"{API_URL_CLINICA}/citas/{datos.cita_id}", json={"estado": "cancelada"})
     except httpx.ConnectError:
         return error_response(503, "No puedo conectar con el sistema de la clínica.")
     if r.status_code == 404:
@@ -193,7 +215,7 @@ async def cancelar_cita(datos: PeticionCitaID):
     return r.json()
 
 
-@app.post("/crear-cita")
+@router.post("/crear-cita")
 async def crear_cita(datos: PeticionCrearCita):
     """Crea una cita nueva para un paciente existente."""
     logger.info("Tool: crear-cita")
@@ -204,7 +226,7 @@ async def crear_cita(datos: PeticionCrearCita):
         "tipo": datos.tipo or "Consulta"
     }
     try:
-        r = await post(f"{CLINIC_API_URL}/citas", json=payload)
+        r = await post(f"{API_URL_CLINICA}/citas", json=payload)
     except httpx.ConnectError:
         return error_response(503, "No puedo conectar con el sistema de la clínica.")
     if r.status_code == 404:
@@ -216,7 +238,7 @@ async def crear_cita(datos: PeticionCrearCita):
 
 # ─── NUEVOS PACIENTES ─────────────────────────────────────────────────
 
-@app.post("/crear-paciente")
+@router.post("/crear-paciente")
 async def crear_paciente(datos: PeticionCrearPaciente):
     """Crea una ficha nueva para un paciente que no está en el sistema."""
     logger.info("Tool: crear-paciente")
@@ -230,7 +252,7 @@ async def crear_paciente(datos: PeticionCrearPaciente):
         "direccion": datos.direccion
     }
     try:
-        r = await post(f"{CLINIC_API_URL}/pacientes", json=payload)
+        r = await post(f"{API_URL_CLINICA}/pacientes", json=payload)
     except httpx.ConnectError:
         return error_response(503, "No puedo conectar con el sistema de la clínica.")
     if r.status_code == 409:
@@ -238,6 +260,9 @@ async def crear_paciente(datos: PeticionCrearPaciente):
     if r.status_code != 201:
         return error_response(r.status_code, "Error al crear la ficha del paciente.")
     return r.json()
+
+
+app.include_router(router)
 
 
 # ─── WEBHOOK POST-LLAMADA ─────────────────────────────────────────────
