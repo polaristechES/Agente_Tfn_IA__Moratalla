@@ -322,7 +322,7 @@ async def webhook_post_llamada(request: Request):
         "duracion":      int(duracion),
         "transferida":   transferida,
         "error_tecnico": error_tecnico,
-        "num_turnos":    len(transcripcion),
+        "num_turnos":    len([t for t in transcripcion if t.get("role") in ("agent", "user")]),
         "herramientas":  herramientas,
     }).execute()
 
