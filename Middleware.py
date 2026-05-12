@@ -293,17 +293,29 @@ async def webhook_post_llamada(request: Request):
 
     # b) Parsear JSON
     datos = json.loads(body)
-    logger.info("WEBHOOK PAYLOAD: %s", json.dumps(datos, ensure_ascii=False, indent=2))
 
-    # c) Extraer campos
-    duracion      = datos.get("duration_seconds", 0)
-    tools_llamadas = datos.get("tools_called", [])
-    transcripcion  = datos.get("transcript", [])
+    # c) Extraer campos — ElevenLabs anida todo bajo "data"
+    data          = datos.get("data", {})
+    metadata      = data.get("metadata", {})
+    duracion      = metadata.get("call_duration_secs", 0)
+    transcripcion = data.get("transcript", [])
+
+    # Herramientas: cada turno del agente puede tener "tool_calls"
+    nombres_tools = []
+    for turno in transcripcion:
+        for tc in turno.get("tool_calls") or []:
+            nombre = tc.get("tool_name") or tc.get("name", "")
+            if nombre:
+                nombres_tools.append(nombre)
 
     # d) Calcular métricas
-    transferida    = any(t["tool"] == "transfer_to_number" for t in tools_llamadas)
-    error_tecnico  = any(not t.get("success", True) for t in tools_llamadas)
-    herramientas   = ", ".join(t["tool"] for t in tools_llamadas) if tools_llamadas else ""
+    transferida   = "transfer_to_number" in nombres_tools
+    error_tecnico = any(
+        tc.get("is_error", False)
+        for turno in transcripcion
+        for tc in turno.get("tool_calls") or []
+    )
+    herramientas  = ", ".join(nombres_tools)
 
     # e) Guardar en Supabase (sin datos personales — RGPD)
     supabase.table("llamadas").insert({
