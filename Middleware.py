@@ -293,6 +293,7 @@ async def webhook_post_llamada(request: Request):
 
     # b) Parsear JSON
     datos = json.loads(body)
+    logger.info("WEBHOOK PAYLOAD: %s", json.dumps(datos, ensure_ascii=False, indent=2))
 
     # c) Extraer campos
     duracion      = datos.get("duration_seconds", 0)
