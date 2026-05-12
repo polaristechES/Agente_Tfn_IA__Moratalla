@@ -58,7 +58,9 @@ app = FastAPI(
 
 async def check_api_key(request: Request):
     """Verifica que la petición incluye la API Key correcta en el header X-API-Key."""
-    if request.headers.get("X-API-Key", "") != API_KEY_MIDDLEWARE:
+    received = request.headers.get("X-API-Key", "")
+    logger.info("API Key recibida: '%s'", received[:8] + "..." if received else "(vacía)")
+    if received != API_KEY_MIDDLEWARE:
         raise HTTPException(status_code=403, detail="API Key inválida")
 
 # Todas las tools del agente van en este router; el webhook tiene su propia auth (HMAC).
@@ -271,11 +273,20 @@ app.include_router(router)
 async def webhook_post_llamada(request: Request):
 
     # a) Verificación HMAC
+    # ElevenLabs envía: "t=<timestamp>,v0=<hmac_hex>"
+    # El payload firmado es: "<timestamp>.<body>"
     body      = await request.body()
-    firma_cab = request.headers.get("ElevenLabs-Signature", "")
+    sig_header = request.headers.get("ElevenLabs-Signature", "")
+    try:
+        partes    = dict(p.split("=", 1) for p in sig_header.split(",") if "=" in p)
+        timestamp = partes.get("t", "")
+        firma_cab = partes.get("v0", "")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Firma inválida")
+    signed_payload = f"{timestamp}.".encode() + body
     firma_esp = hmac.new(
         WEBHOOK_SECRET.encode(),
-        body,
+        signed_payload,
         hashlib.sha256
     ).hexdigest()
     if not hmac.compare_digest(firma_esp, firma_cab):
