@@ -300,6 +300,11 @@ async def webhook_post_llamada(request: Request):
     duracion      = metadata.get("call_duration_secs", 0)
     transcripcion = data.get("transcript", [])
 
+    # Log temporal para ver la estructura de tool_calls
+    for turno in transcripcion:
+        for tc in turno.get("tool_calls") or []:
+            logger.info("TOOL_CALL: %s", tc)
+
     # Herramientas: cada turno del agente puede tener "tool_calls"
     nombres_tools = []
     for turno in transcripcion:
@@ -322,7 +327,7 @@ async def webhook_post_llamada(request: Request):
         "duracion":      int(duracion),
         "transferida":   transferida,
         "error_tecnico": error_tecnico,
-        "num_turnos":    len([t for t in transcripcion if t.get("role") in ("agent", "user")]),
+        "num_turnos":    len([t for t in transcripcion if t.get("role") in ("agent", "user") and t.get("message")]),
         "herramientas":  herramientas,
     }).execute()
 
