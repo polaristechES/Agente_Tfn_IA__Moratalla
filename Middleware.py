@@ -76,8 +76,8 @@ class PeticionCitaID(BaseModel):
 
 class PeticionModificarCita(BaseModel):
     cita_id: int
-    fecha: Optional[str] = None   # formato YYYY-MM-DD
-    hora: Optional[str] = None    # formato HH:MM
+    nueva_fecha: Optional[str] = None   # formato YYYY-MM-DD
+    nueva_hora: Optional[str] = None    # formato HH:MM
 
 class PeticionCrearCita(BaseModel):
     dni_paciente: str
@@ -88,11 +88,11 @@ class PeticionCrearCita(BaseModel):
 class PeticionCrearPaciente(BaseModel):
     dni: str
     nombre: str
-    apellidos: str
+    apellidos: Optional[str] = ""
     fecha_nacimiento: str         # formato YYYY-MM-DD
     telefono: str
-    email: str
-    direccion: str
+    email: Optional[str] = ""
+    direccion: Optional[str] = ""
 
 
 # ─── Helper ───────────────────────────────────────────────────────────────────
@@ -186,7 +186,7 @@ async def consultar_disponibilidad():
 async def modificar_cita(datos: PeticionModificarCita):
     """Cambia la fecha y/o hora de una cita existente."""
     logger.info("Tool: modificar-cita — ID: %s", datos.cita_id)
-    cambios = {k: v for k, v in {"fecha": datos.fecha, "hora": datos.hora}.items() if v}
+    cambios = {k: v for k, v in {"fecha": datos.nueva_fecha, "hora": datos.nueva_hora}.items() if v}
     if not cambios:
         return error_response(400, "No se indicó ningún campo a modificar.")
     try:
@@ -299,11 +299,6 @@ async def webhook_post_llamada(request: Request):
     metadata      = data.get("metadata", {})
     duracion      = metadata.get("call_duration_secs", 0)
     transcripcion = data.get("transcript", [])
-
-    # Log temporal para ver la estructura de tool_calls
-    for turno in transcripcion:
-        for tc in turno.get("tool_calls") or []:
-            logger.info("TOOL_CALL: %s", tc)
 
     # Herramientas: cada turno del agente puede tener "tool_calls"
     nombres_tools = []
