@@ -169,7 +169,7 @@ async def consultar_citas(datos: PeticionDNI):
 
 # ─── GESTIÓN DE CITAS ─────────────────────────────────────────────────
 
-@router.post("/consultar-disponibilidad")
+@router.get("/consultar-disponibilidad")
 async def consultar_disponibilidad():
     """Devuelve las franjas horarias libres para pedir o cambiar cita."""
     logger.info("Tool: consultar-disponibilidad")
