@@ -80,7 +80,7 @@ class PeticionModificarCita(BaseModel):
     nueva_hora: Optional[str] = None    # formato HH:MM
 
 class PeticionCrearCita(BaseModel):
-    dni_paciente: str
+    dni: str
     fecha: str                    # formato YYYY-MM-DD
     hora: str                     # formato HH:MM
     tipo: Optional[str] = "Consulta"
@@ -220,7 +220,7 @@ async def crear_cita(datos: PeticionCrearCita):
     """Crea una cita nueva para un paciente existente."""
     logger.info("Tool: crear-cita")
     payload = {
-        "dni_paciente": datos.dni_paciente.upper(),
+        "dni_paciente": datos.dni.upper(),
         "fecha": datos.fecha,
         "hora": datos.hora,
         "tipo": datos.tipo or "Consulta"
@@ -301,15 +301,17 @@ async def webhook_post_llamada(request: Request):
     transcripcion = data.get("transcript", [])
 
     # Herramientas: cada turno del agente puede tener "tool_calls"
-    nombres_tools = []
+    TOOLS_SISTEMA = {"end_call", "skip_turn", "detect_language"}
+    todos_tools = []
     for turno in transcripcion:
         for tc in turno.get("tool_calls") or []:
             nombre = tc.get("tool_name") or tc.get("name", "")
             if nombre:
-                nombres_tools.append(nombre)
+                todos_tools.append(nombre)
+    nombres_tools = [t for t in todos_tools if t not in TOOLS_SISTEMA]
 
     # d) Calcular métricas
-    transferida   = "transfer_to_number" in nombres_tools
+    transferida   = "transfer_to_number" in todos_tools
     error_tecnico = any(
         tc.get("is_error", False)
         for turno in transcripcion
@@ -332,7 +334,7 @@ async def webhook_post_llamada(request: Request):
     print(f"  Duración:      {duracion} segundos")
     print(f"  Transferida:   {transferida}")
     print(f"  Error técnico: {error_tecnico}")
-    print(f"  Turnos:        {len(transcripcion)}")
+    print(f"  Turnos:        {len([t for t in transcripcion if t.get('role') in ('agent', 'user') and t.get('message')])}")
     print(f"  Herramientas:  {herramientas or '(ninguna)'}")
     print()
     print("TRANSCRIPCIÓN:")
